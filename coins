@@ -1,0 +1,235 @@
+import doctest
+import requests
+
+
+def dict_to_query(info):
+    ''' (dict) -> str
+    Takes in a dictionary (ex. of the email and token info),
+    returns a string with a "key=value" format,
+    each pair separated with a &.
+    
+    >>> dict_to_query({"email": "name.fam@mcgill.ca", "token": "ABC"})
+    'email=name.fam@mcgill.ca&token=ABC'
+    
+    >>> dict_to_query({"email": "mail", "amount": "50", "info": "yeah"})
+    'email=mail&amount=50&info=yeah'
+    
+    >>> dict_to_query({5: "5", 12: "12"})
+    '5=5&12=12'
+    
+    '''
+    
+    info_str = ""
+    
+    for key, value in info.items():
+        info_str = info_str + str(key) + "=" + str(value) + "&"
+    
+    return info_str[:-1]
+
+
+class Account:
+    ''' A class to represent an Account.
+
+    Instance attributes:
+    * email: str
+    * token: str
+    * balance: int
+    * request_log: list
+    
+    Class attributes:
+    * API_URL: str
+
+    '''
+    
+    API_URL = "https://coinsbot202.herokuapp.com/api/"
+    
+    
+    def __init__(self, email, token):
+        ''' (str, str) -> NoneType
+        Creates an object of type Account with given email and token.
+        Raises an AssertionError if the types of inputs are invalid,
+        or email does not end in "mcgill.ca".
+        
+        >>> my_acct = Account("name.fam@mcgill.ca", "ABC")
+        >>> my_acct.token
+        'ABC'
+        
+        >>> my_acct = Account("name.fam@mcgillca", "ABC")
+        Traceback (most recent call last):
+        AssertionError: Please enter email ending in 'mcgill.ca'.
+        
+        >>> my_acct = Account(["name.fam@mcill.ca"], "ABC")
+        Traceback (most recent call last):
+        AssertionError: Please enter strings as inputs.
+        
+        '''
+        
+        if type(email) != str or type(token) != str:
+            raise AssertionError("Please enter strings as inputs.")
+        elif email[-9:] != "mcgill.ca":
+            raise AssertionError("Please enter email ending in 'mcgill.ca'.")
+        
+        self.email = email
+        self.token = token
+        self.balance = -1
+        self.request_log = []
+        
+    
+    def __str__(self):
+        ''' () -> str
+        Returns a string of the format "EMAIL has balance BALANCE"
+        where EMAIL and BALANCE are the respective instant attributes.
+        
+        >>> my_acct = Account("name.fam@mcgill.ca", "ABC")
+        >>> print(my_acct)
+        name.fam@mcgill.ca has balance -1
+        
+        >>> my_acct = Account("cher.li@mail.mcgill.ca", "mvUtjILs0RNLe3Wv")
+        >>> print(my_acct)
+        cher.li@mail.mcgill.ca has balance -1
+        
+        >>> my_acct = Account("another_email.mcgill.ca", "ABC")
+        >>> print(my_acct)
+        another_email.mcgill.ca has balance -1
+        
+        '''
+
+        return self.email + " has balance " + str(self.balance)
+    
+    
+    def call_api(self, endpoint, req_dict):
+        ''' (str, dict) -> dict
+        Takes in an endpoint and request dictionary,
+        raise an AssertionError if the types of inputs are invalid,
+        or if the endpoint is invalid,
+        Adds "token: instance attribute of token" format into the dictionary.
+        Constructs an API request URL and sends request,
+        if "status" is not "OK", raises an AssertionError
+        with the value for the "message" key as error message.
+        Returns result dictionary elsewise. 
+        
+        >>> my_acct = Account("name.fam@mcgill.ca", "ABC")
+        >>> my_acct.call_api("balance", "'email': my_acct.email")
+        Traceback (most recent call last):
+        AssertionError: Please enter all correct types.
+        
+        >>> my_acct = Account("jonathan.campbell@mcgill.ca", "ABC")
+        >>> my_acct.call_api("balance", {'email': my_acct.email})
+        Traceback (most recent call last):
+        AssertionError: The token in the API request did not match the token that was sent over Slack.
+        
+        >>> my_acct = Account("cher.li@mail.mcgill.ca", "mvUtjILs0RNLe3Wv")
+        >>> my_acct.call_api("balance", {"email": my_acct.email})
+        {'message': 3650, 'status': 'OK'}
+        
+        '''
+        
+        if type(endpoint) != str or type(req_dict) != dict:
+            raise AssertionError("Please enter all correct types.")
+        elif endpoint != "balance" and endpoint != "transfer":
+            raise AssertionError("Please enter the correct endpoint.")
+        
+        req_dict["token"] = self.token
+        
+        req_url = Account.API_URL + endpoint + "?" + dict_to_query(req_dict)
+        result = requests.get(url=req_url).json()
+        
+        if result["status"] != "OK":
+            raise AssertionError(result["message"])
+        else:
+            return result
+
+
+    def retrieve_balance(self):
+        ''' () -> int
+        Calls API, retrieves the balance for the user email,
+        updates the balance attribute of the user to the value.
+        Then returns the integer of the balance.
+        
+        >>> my_acct = Account("cher.li@mail.mcgill.ca", "mvUtjILs0RNLe3Wv")
+        >>> my_acct.retrieve_balance()
+        3650
+        >>> my_acct.balance
+        3650
+        
+        >>> my_acct = Account("jonathan.campbell@mcgill.ca", "ABC")
+        >>> my_acct.retrieve_balance()
+        Traceback (most recent call last):
+        AssertionError: The token in the API request did not match the token that was sent over Slack.
+        
+        >>> Account(["nam.fam@mcgill.ca"], "ABC").retrieve_balance()
+        Traceback (most recent call last):
+        AssertionError: Please enter strings as inputs.
+        
+        '''
+        
+        result = self.call_api("balance", {"email": self.email})
+        self.balance = int(result["message"])
+        return self.balance
+    
+    
+    def transfer(self, coins, email):
+        ''' (int, str) -> str
+        Takes a positive integer number of coins and an email
+        as the deposit email. Raises an AssertionError if
+        the types of inputs are incorrect, if the email is invalid,
+        if the deposit email is the same as withdrawal email, if
+        the user's balance is -1, if the input number if not positive
+        or greater than current balance.
+        Calls the API, transfers said number of coins to the user.
+        Returns the value for the key "message" in the result. 
+
+        >>> my_acct = Account("cher.li@mail.mcgill.ca", "mvUtjILs0RNLe3Wv")
+        >>> my_acct.transfer(1.0, "alexa.infelise@mail.mcgill.ca")
+        Traceback (most recent call last):
+        AssertionError: Please enter all correct types.
+        
+        >>> my_acct.transfer(1, "alexa.infelise@mail.mcgillca")
+        Traceback (most recent call last):
+        AssertionError: Please enter email ending in 'mcgill.ca'.
+        
+        >>> my_acct = Account("cher.li@mail.mcgill.ca", "mvUtjILs0RNLe3Wv")
+        >>> my_acct.transfer(1, "cher.li@mail.mcgill.ca")
+        Traceback (most recent call last):
+        AssertionError: Please enter a separate email.
+        
+        >>> my_acct = Account("cher.li@mail.mcgill.ca", "mvUtjILs0RNLe3Wv")
+        >>> my_acct.transfer(0, "alexa.infelise@mail.mcgill.ca")
+        Traceback (most recent call last):
+        AssertionError: Please enter a positive amount of coins.
+
+        >>> my_acct = Account("cher.li@mail.mcgill.ca", "mvUtjILs0RNLe3Wv")
+        >>> my_acct.transfer(4000, "alexa.infelise@mail.mcgill.ca")
+        Traceback (most recent call last):
+        AssertionError: Please enter a valid amount to transfer.
+        
+        >>> my_acct.transfer(500, "yasmine.daoud@mail.mcgill.ca")
+        'You have transferred 25 coins of your balance of 3650 coins to alexa.infelise. Your balance is now 3625.'
+        
+        '''
+        
+        current_balance = self.retrieve_balance()
+        
+        if type(coins) != int or type(email) != str:
+            raise AssertionError("Please enter all correct types.")
+        elif email[-9:] != "mcgill.ca":
+            raise AssertionError("Please enter email ending in 'mcgill.ca'.")
+        elif self.email == email:
+            raise AssertionError("Please enter a separate email.")
+        elif current_balance == -1:
+            raise AssertionError("Please enter email with valid balance.")
+        elif coins <= 0:
+            raise AssertionError("Please enter a positive amount of coins.")
+        elif coins > current_balance:
+            raise AssertionError("Please enter a valid amount to transfer.")
+        
+        result = self.call_api("transfer", {"withdrawal_email": self.email,
+                                            "token": self.token,
+                                            "deposit_email": email,
+                                            "amount": coins})
+        
+        return result["message"]
+
+
+if __name__ == "__main__":
+    doctest.testmod()
